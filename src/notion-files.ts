@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { NotionConfig, NotionBlock, BlockMap } from './types.js';
-import { notionPost } from './notion-client.js';
+import { notionPost, userAgentFor } from './notion-client.js';
 
 // Upload one local image to Notion. The image block MUST already exist — getUploadFileUrl
 // validates the block's ancestor path (a missing/uncreated block → 400 incomplete_ancestor_path),
@@ -66,9 +66,6 @@ export function buildImagePatchOps(blocks: NotionBlock[]): any[] {
   }));
 }
 
-const BROWSER_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36';
-
 // Notion-hosted file hosts whose sources must be proxy-resolved to be viewable.
 const NOTION_FILE_HOST_RE = /(prod-files-secure|secure\.notion-static\.com|s3\.[a-z0-9-]+\.amazonaws\.com|file\.notion\.so)/i;
 
@@ -95,12 +92,21 @@ function proxyUrl(inner: string, blockId: string): string {
   return `https://www.notion.so/image/${encodeURIComponent(inner)}?table=block&id=${blockId}&cache=v2`;
 }
 
+// The image proxy sits behind the same bot check as api/v3, so it needs the same
+// treatment: send the configured User-Agent, or none at all when unset.
+function imageHeaders(config: NotionConfig): Record<string, string> {
+  const headers: Record<string, string> = { cookie: cookieFor(config), accept: 'image/*,*/*' };
+  const ua = userAgentFor(config);
+  if (ua) headers['user-agent'] = ua;
+  return headers;
+}
+
 // Resolve a notion-hosted source to a publicly-fetchable CDN url (or null).
 async function resolveToCdnUrl(config: NotionConfig, source: string, blockId: string): Promise<string | null> {
   const inner = innerS3Url(source, config.spaceId);
   if (!inner) return null;
   const res = await fetch(proxyUrl(inner, blockId), {
-    headers: { 'user-agent': BROWSER_UA, cookie: cookieFor(config), accept: 'image/*,*/*' },
+    headers: imageHeaders(config),
     redirect: 'manual',
   });
   return res.headers.get('location');
@@ -113,9 +119,7 @@ async function fetchImageBytes(
 ): Promise<{ buffer: Buffer; contentType: string } | null> {
   const inner = innerS3Url(source, config.spaceId);
   if (!inner) return null;
-  const res = await fetch(proxyUrl(inner, blockId), {
-    headers: { 'user-agent': BROWSER_UA, cookie: cookieFor(config), accept: 'image/*,*/*' },
-  });
+  const res = await fetch(proxyUrl(inner, blockId), { headers: imageHeaders(config) });
   if (!res.ok) return null;
   return { buffer: Buffer.from(await res.arrayBuffer()), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };
 }

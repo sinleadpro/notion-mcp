@@ -4,6 +4,27 @@ import { readConfigFile } from './config-store.js';
 const BASE = 'https://www.notion.so/api/v3';
 const DEBUG = process.env.NOTION_DEBUG === '1' || process.env.NOTION_DEBUG === 'true';
 
+// Cloudflare fronts notion.so and answers api/v3 calls carrying Node's default fetch
+// User-Agent with a 403 HTML challenge page instead of JSON.
+//
+// There is deliberately no built-in default UA: shipping one means every install
+// impersonates the same Chrome build to get past a bot check that is there on purpose.
+// Unset, we send no User-Agent header at all, Node's default goes out, and the 403
+// stands. Users who want the requests through opt in explicitly via NOTION_USER_AGENT
+// or a "userAgent" key in ~/.notion-mcp/config.json.
+//
+// Returns undefined (not '') when unset — an empty user-agent header passes the bot
+// check, which would defeat the point.
+export function userAgentFor(config: NotionConfig): string | undefined {
+  return config.userAgent || undefined;
+}
+
+const UA_HELP =
+  "Notion returned 403 — Cloudflare's bot check blocked the request. This server sends no " +
+  "User-Agent unless you set one, so Node's default goes out and gets challenged. Set the " +
+  'User-Agent of the browser you copied your token_v2 from, via the NOTION_USER_AGENT env ' +
+  'var or a "userAgent" key in ~/.notion-mcp/config.json.';
+
 const AUTH_HELP =
   'Notion authentication failed — your token_v2 session cookie is expired or invalid. ' +
   'Refresh it: open notion.so → DevTools (F12) → Application → Cookies → copy the token_v2 ' +
@@ -14,6 +35,7 @@ export function loadConfig(): NotionConfig {
   const token = process.env.NOTION_TOKEN ?? file.token;
   const userId = process.env.NOTION_USER_ID ?? file.userId;
   const spaceId = process.env.NOTION_SPACE_ID ?? file.spaceId;
+  const userAgent = process.env.NOTION_USER_AGENT ?? file.userAgent;
 
   const missing: string[] = [];
   if (!token) missing.push('NOTION_TOKEN');
@@ -30,7 +52,7 @@ export function loadConfig(): NotionConfig {
     );
   }
 
-  return { token: token!, userId: userId!, spaceId: spaceId! };
+  return { token: token!, userId: userId!, spaceId: spaceId!, userAgent };
 }
 
 // Thrown for non-2xx HTTP responses so callers can branch on the status code
@@ -51,6 +73,8 @@ export async function notionPost(config: NotionConfig, endpoint: string, body: u
     'x-notion-active-user-header': config.userId,
     cookie: `token_v2=${config.token}; notion_user_id=${config.userId}`,
   };
+  const ua = userAgentFor(config);
+  if (ua) headers['user-agent'] = ua;
   // The space-routed write endpoint (saveTransactionsFanout) expects this header;
   // it's harmless on reads. Omit it when spaceId is unknown (e.g. during init,
   // where loadUserContent runs before a workspace is chosen) to avoid a blank header.
@@ -68,6 +92,9 @@ export async function notionPost(config: NotionConfig, endpoint: string, body: u
   if (!res.ok) {
     if (res.status === 401) {
       throw new NotionHttpError(`${AUTH_HELP} (raw: ${res.status} ${text.slice(0, 200)})`, 401, endpoint);
+    }
+    if (res.status === 403) {
+      throw new NotionHttpError(`${UA_HELP} (raw: ${res.status} ${text.slice(0, 200)})`, 403, endpoint);
     }
     throw new NotionHttpError(`Notion ${endpoint} ${res.status}: ${text.slice(0, 300)}`, res.status, endpoint);
   }

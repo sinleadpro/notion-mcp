@@ -41,6 +41,8 @@ src/
 
 Credentials resolve **env → `~/.notion-mcp/config.json`** (env wins): `NOTION_TOKEN`, `NOTION_USER_ID`, `NOTION_SPACE_ID`. Easiest setup is `npx @shck-dev/notion-mcp init` (or the `notion_init` tool) — paste a browser "Copy as cURL" and it extracts + saves all three. `loadConfig()` is lazy, so the server still boots and lists tools/prompts/resources with **no credentials** (needed for marketplace validators); it only throws when a credentialed tool is actually called. `NOTION_MCP_CONFIG_DIR` overrides the config-file directory. On a 401 / `UnauthorizedError`, `notionPost` throws actionable guidance to re-grab the expired `token_v2` cookie.
 
+**User-Agent.** Cloudflare 403s api/v3 calls carrying Node's default fetch UA. There is **no built-in default UA** — `userAgentFor()` returns `config.userAgent || undefined` and callers omit the header when it's undefined, so an unconfigured install deliberately takes the 403 instead of impersonating a browser. Users opt in with `NOTION_USER_AGENT` or a `"userAgent"` key in `config.json` (env wins); `notionPost` turns a 403 into guidance saying exactly that. Note `undefined`, not `''`: measured against live Notion, an **empty** `user-agent` passes the bot check, only the Node default is challenged — so returning `''` would silently defeat the design. The image proxy (`notion-files.ts`, `imageHeaders()`) sits behind the same check and follows the same rule.
+
 ## Tools
 
 - `notion_search` — full-text search across the workspace.

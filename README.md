@@ -115,6 +115,20 @@ Add to your MCP config (`claude_desktop_config.json`, `.cursor/mcp.json`, etc.):
 }
 ```
 
+### 3. If Notion answers 403
+
+Cloudflare fronts `notion.so` and challenges requests carrying Node's default User-Agent.
+This server ships **no** User-Agent of its own and does not pretend to be a browser, so a 403
+is expected until you set one — use the exact UA of the browser you copied `token_v2` from
+(DevTools → Network → any request → Request Headers → `user-agent`):
+
+```bash
+NOTION_USER_AGENT="Mozilla/5.0 (…) Chrome/… Safari/537.36"
+```
+
+Or add a `"userAgent"` key next to your credentials in `~/.notion-mcp/config.json`. The env
+var wins over the file.
+
 ## Requirements
 
 - **Node.js ≥ 18** (for `npx`) — or [Bun](https://bun.sh). The published server is compiled to node-compatible JS, so Bun is no longer required to run it.

@@ -24,6 +24,7 @@ export function readConfigFile(): Partial<NotionConfig> | null {
     if (j.token) out.token = j.token;
     if (j.userId) out.userId = j.userId;
     if (j.spaceId) out.spaceId = j.spaceId;
+    if (j.userAgent) out.userAgent = j.userAgent;
     return out;
   } catch {
     return null;
